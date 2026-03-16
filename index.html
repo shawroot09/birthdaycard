@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>梦幻3D生日卡片 · 点击启封</title>
+    <!-- 使用最新版本的Three.js (r128) 和轨道控制器 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    <style>
+        /* 全局样式：渐变背景，充满全屏，无滚动条 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            /* 背景渐变与3D场景背景一致（通过canvas透明透出） */
+        }
+
+        #app {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* ---------- 信封界面 (初始可见) ---------- */
+        #envelope-wrapper {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.7s ease-in-out;
+            background: transparent; /* 让body背景透出 */
+        }
+
+        .envelope {
+            width: 300px;
+            height: 200px;
+            background-color: #ff9999; /* 主色调 */
+            position: relative;
+            cursor: pointer;
+            border-radius: 10px 10px 6px 6px;
+            box-shadow: 0 20px 30px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* 三角形翻盖使用 ::before */
+        }
+
+        .envelope:hover {
+            transform: scale(1.05);
+        }
+
+        /* 折叠的三角形翻盖 (位于信封上方) */
+        .envelope::before {
+            content: '';
+            position: absolute;
+            top: -48px; /* 向上突出形成翻盖 */
+            left: 0;
+            width: 0;
+            height: 0;
+            border-left: 150px solid transparent;  /* 三角形宽度 = 信封宽度的一半 * 2 */
+            border-right: 150px solid transparent;
+            border-bottom: 55px solid #ff9999;     /* 翻盖高度, 颜色与信封一致 */
+            border-top: none;
+            z-index: 3;
+            border-radius: 8px 8px 0 0; /* 轻微圆润边缘 */
+            filter: drop-shadow(0 -3px 3px rgba(0,0,0,0.1));
+        }
+
+        .envelope .open-text {
+            color: white;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 4px;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.2);
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 40px;
+            backdrop-filter: blur(3px);
+            z-index: 5;
+            position: relative;
+        }
+
+        /* ---------- 3D场景容器 (初始隐藏) ---------- */
+        #scene-container {
+            display: none;      /* 信封点击后设为flex */
+            width: 100%;
+            height: 100%;
+            flex-direction: row;
+            opacity: 0;
+            animation: fadeInContent 0.8s forwards;
+        }
+
+        @keyframes fadeInContent {
+            to { opacity: 1; }
+        }
+
+        /* 左侧画布区域 (占满剩余宽度) */
+        #canvas-holder {
+            flex: 1;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+            min-width: 0; /* flex收缩控制 */
+        }
+
+        /* 右侧祝福卡片 (宽300px, 白色圆角, 阴影) */
+        #greeting-card {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border-radius: 35px 0 0 35px;   /* 左侧圆角，右侧贴合边缘 */
+            box-shadow: -10px 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 35px 25px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+            box-sizing: border-box;
+            border-left: 1px solid rgba(255, 255, 240, 0.7);
+            overflow-y: auto;  /* 确保小屏幕可滚动 */
+        }
+
+        #greeting-card h1 {
+            font-size: 2.4rem;
+            margin: 0 0 20px 0;
+            color: #ff6f6f;
+            text-align: center;
+            text-shadow: 3px 3px 0 #ffe0e0;
+            letter-spacing: 2px;
+            word-break: break-word;
+        }
+
+        .blessings p {
+            font-size: 1.02rem;
+            line-height: 1.8;
+            color: #2c3e50;
+            margin-bottom: 22px;
+            text-indent: 2em;
+            font-weight: 400;
+        }
+
+        .blessings p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* 响应式布局：当宽度不足850px时，卡片置于底部 */
+        @media (max-width: 850px) {
+            #scene-container {
+                flex-direction: column;
+            }
+            #canvas-holder {
+                width: 100%;
+                height: 60%;
+            }
+            #greeting-card {
+                width: 100%;
+                height: 40%;
+                border-radius: 35px 35px 0 0;
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 240, 0.7);
+                padding: 20px 25px;
+            }
+            #greeting-card h1 {
+                font-size: 2rem;
+                margin-bottom: 10px;
+            }
+            .blessings p {
+                font-size: 0.95rem;
+                margin-bottom: 12px;
+            }
+        }
+
+        /* 极窄屏幕下信封略微缩小 */
+        @media (max-width: 400px) {
+            .envelope {
+                transform: scale(0.85);
+            }
+            .envelope:hover {
+                transform: scale(0.9);
+            }
+        }
+
+        /* 隐藏辅助 */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 信封区域 (点击前可见) -->
+        <div id="envelope-wrapper">
+            <div class="envelope" id="envelope">
+                <span class="open-text">Click to Open</span>
+            </div>
+        </div>
+
+        <!-- 3D场景区域 (点击信封后显示) -->
+        <div id="scene-container">
+            <div id="canvas-holder"></div>
+            <div id="greeting-card">
+                <h1>Happy Birthday!</h1>
+                <div class="blessings">
+                    <p>愿你的每一天都像这三层蛋糕：底层是坚实的健康，中层是丰盈的快乐，顶层是绚烂的梦想。每一口甜蜜，都是生活赠予你的温柔。</p>
+                    <p>五根蜡烛为你点亮——代表勇气、幸运、爱情、智慧和永恒的青春。烛光摇曳中，愿你许下的每个愿望都如流星般精准坠入现实。</p>
+                    <p>岁月漫长，然而值得等待。在这特别的日子里，愿所有美好都奔你而来，愿你永远保持热爱，奔赴山海。生日快乐，亲爱的朋友！</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // ----- 严格使用 Three.js 官方模块 -----
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 获取界面元素 ---
+        const envelopeWrapper = document.getElementById('envelope-wrapper');
+        const sceneContainer = document.getElementById('scene-container');
+        const canvasHolder = document.getElementById('canvas-holder');
+        const envelopeEl = document.getElementById('envelope');
+
+        // --- Three.js 相关变量 ---
+        let scene, camera, renderer, controls, cakeGroup;
+        let initialized = false;        // 标记是否已初始化3D
+        let animationFrameId = null;
+
+        // --- 点击信封：平滑过渡到3D场景 ---
+        envelopeEl.addEventListener('click', () => {
+            // 隐藏信封区域
+            envelopeWrapper.style.display = 'none';
+            // 显示场景容器
+            sceneContainer.style.display = 'flex';
+
+            if (!initialized) {
+                initThreeScene();
+                initialized = true;
+            } else {
+                // 确保渲染尺寸正确 (窗口大小可能变化)
+                onWindowResize();
+            }
+        });
+
+        // --- 初始化Three.js场景 (包含蛋糕模型、灯光、控制器) ---
+        function initThreeScene() {
+            // 创建场景 (背景透明，让body渐变透出)
+            scene = new THREE.Scene();
+            scene.background = null;     // 透明
+
+            // 相机 (透视相机)
+            const width = canvasHolder.clientWidth;
+            const height = canvasHolder.clientHeight;
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(5, 2.8, 7);  // 设置一个较好的视角
+            camera.lookAt(0, 1.5, 0);
+
+            // 渲染器 (开启透明度)
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制过高pixel ratio以防性能问题
+            renderer.shadowMap.enabled = false; // 本场景无需阴影，保持性能
+            canvasHolder.appendChild(renderer.domElement);
+
+            // 轨道控制器 (可交互旋转/缩放)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = false;      // 蛋糕本身旋转，相机不自动旋转
+            controls.enableZoom = true;
+            controls.target.set(0, 1.5, 0);
+            controls.maxPolarAngle = Math.PI / 2; // 限制角度，避免看到地底
+
+            // --- 灯光系统 ---
+            // 环境光 (柔和基础光)
+            const ambientLight = new THREE.AmbientLight(0x404060);
+            scene.add(ambientLight);
+
+            // 主定向光 (产生立体感)
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(3, 5, 4);
+            scene.add(dirLight);
+
+            // 辅光 (暖色)
+            const fillLight = new THREE.DirectionalLight(0xffccaa, 0.6);
+            fillLight.position.set(-3, 2, 3);
+            scene.add(fillLight);
+
+            // 背光冷色补充
+            const backLight = new THREE.DirectionalLight(0xaaccff, 0.5);
+            backLight.position.set(0, 2, -6);
+            scene.add(backLight);
+
+            // 顶部点光源让蛋糕更有光泽
+            const pointLight = new THREE.PointLight(0xffaa88, 0.7, 10);
+            pointLight.position.set(1, 4, 2);
+            scene.add(pointLight);
+
+            // --- 创建蛋糕组合 (方便整体旋转) ---
+            cakeGroup = new THREE.Group();
+
+            // 通用材质参数：略带光泽
+            // 底层 (直径4 → 半径2, 高0.5)
+            const layer1Geo = new THREE.CylinderGeometry(2, 2, 0.5, 64);
+            const layer1Mat = new THREE.MeshPhongMaterial({ color: 0xffcc99, shininess: 40 });
+            const layer1 = new THREE.Mesh(layer1Geo, layer1Mat);
+            layer1.position.y = 0.25;  // 中心y = 高度/2
+            layer1.castShadow = true;
+            layer1.receiveShadow = true;
+            cakeGroup.add(layer1);
+
+            // 中层 (半径1.5, 高0.5)
+            const layer2Geo = new THREE.CylinderGeometry(1.5, 1.5, 0.5, 64);
+            const layer2Mat = new THREE.MeshPhongMaterial({ color: 0xff99cc, shininess: 40 });
+            const layer2 = new THREE.Mesh(layer2Geo, layer2Mat);
+            layer2.position.y = 0.75;  // 0.25 + 0.5 = 0.75
+            layer2.castShadow = true;
+            layer2.receiveShadow = true;
+            cakeGroup.add(layer2);
+
+            // 顶层 (半径1, 高0.5)
+            const layer3Geo = new THREE.CylinderGeometry(1, 1, 0.5, 64);
+            const layer3Mat = new THREE.MeshPhongMaterial({ color: 0xff6666, shininess: 40 });
+            const layer3 = new THREE.Mesh(layer3Geo, layer3Mat);
+            layer3.position.y = 1.25;  // 0.75 + 0.5 = 1.25
+            layer3.castShadow = true;
+            layer3.receiveShadow = true;
+            cakeGroup.add(layer3);
+
+            // --- 白色糖霜 (环形 Torus) 每层边缘添加一个，放在每层的上表面边缘 ---
+            function addFrosting(radius, yPos) {
+                const torusGeo = new THREE.TorusGeometry(radius, 0.06, 16, 80);
+                const torusMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 80 });
+                const torus = new THREE.Mesh(torusGeo, torusMat);
+                torus.rotation.x = Math.PI / 2;  // 平躺
+                torus.position.y = yPos;
+                cakeGroup.add(torus);
+            }
+            // 三层上表面高度：底层0.5，中层1.0，顶层1.5 (因为圆柱中心y + 高度/2)
+            addFrosting(2.0, 0.5);    // 底层上表面边缘
+            addFrosting(1.5, 1.0);    // 中层上表面边缘
+            addFrosting(1.0, 1.5);    // 顶层上表面边缘
+
+            // --- 蜡烛 (5根: 中间1根，前后左右十字排列) ---
+            const candleRadius = 0.1;
+            const candleHeight = 0.8;
+            const candleYBase = 1.5;          // 顶层上表面高度
+            const candleCenterY = candleYBase + candleHeight/2; // 1.9
+            const flameY = candleYBase + candleHeight + 0.08;    // 火焰小球中心 ≈2.38
+
+            // 蜡烛材质 (白色，光滑)
+            const candleMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 90 });
+            // 火焰材质 (自发光呈现橙色光晕)
+            const flameMat = new THREE.MeshPhongMaterial({ color: 0xff5500, emissive: 0xff3300 });
+
+            // 定义五个位置 (相对中心)
+            const positions = [
+                { x: 0, z: 0 },      // 中间
+                { x: 0.5, z: 0 },    // 右
+                { x: -0.5, z: 0 },   // 左
+                { x: 0, z: 0.5 },    // 前 (相机方向)
+                { x: 0, z: -0.5 }    // 后
+            ];
+
+            positions.forEach(pos => {
+                // 蜡烛柱体
+                const candleGeo = new THREE.CylinderGeometry(candleRadius, candleRadius, candleHeight, 16);
+                const candleMesh = new THREE.Mesh(candleGeo, candleMat);
+                candleMesh.position.set(pos.x, candleCenterY, pos.z);
+                cakeGroup.add(candleMesh);
+
+                // 火焰 (小球)
+                const flameGeo = new THREE.SphereGeometry(0.13, 16);
+                const flameMesh = new THREE.Mesh(flameGeo, flameMat);
+                flameMesh.position.set(pos.x, flameY, pos.z);
+                cakeGroup.add(flameMesh);
+            });
+
+            // --- 彩色装饰小球 (约20个，随机颜色，分布在各层上表面) ---
+            const colors = [0xff3333, 0x33ff33, 0x3333ff, 0xffff33, 0xff33ff, 0x33ffff, 0xff9933, 0xff66cc];
+            const sprinkleCount = 22;
+            const sprinkleRadius = 0.1;
+
+            for (let i = 0; i < sprinkleCount; i++) {
+                // 随机选择层: 0底层,1中层,2顶层 (但顶层要稍微避开蜡烛区域)
+                const layerIdx = Math.floor(Math.random() * 3);
+                let layerY, maxR, yOffset = 0.02; // 小球略微高出糖霜一点
+
+                if (layerIdx === 0) {
+                    layerY = 0.5 + sprinkleRadius + yOffset;
+                    maxR = 1.9;   // 避免超出蛋糕半径
+                } else if (layerIdx === 1) {
+                    layerY = 1.0 + sprinkleRadius + yOffset;
+                    maxR = 1.4;
+                } else {
+                    layerY = 1.5 + sprinkleRadius + yOffset;
+                    maxR = 0.8;    // 顶层半径1，蜡烛占用了中心附近，限制范围
+                }
+
+                // 随机半径和角度，对于顶层尽量不靠近中心 (半径>0.2)
+                let r;
+                if (layerIdx === 2) {
+                    r = 0.3 + Math.random() * 0.6; // 0.3 ~ 0.9
+                } else {
+                    r = Math.random() * maxR;
+                }
+                const angle = Math.random() * Math.PI * 2;
+                const x = Math.cos(angle) * r;
+                const z = Math.sin(angle) * r;
+
+                // 随机颜色
+                const col = colors[Math.floor(Math.random() * colors.length)];
+                const sprinkleMat = new THREE.MeshPhongMaterial({ color: col, shininess: 50 });
+                const sprinkleGeo = new THREE.SphereGeometry(sprinkleRadius, 12);
+                const sprinkleMesh = new THREE.Mesh(sprinkleGeo, sprinkleMat);
+                sprinkleMesh.position.set(x, layerY, z);
+                cakeGroup.add(sprinkleMesh);
+            }
+
+            // 将蛋糕组添加到场景
+            scene.add(cakeGroup);
+
+            // --- 响应窗口大小变化 ---
+            window.addEventListener('resize', onWindowResize);
+
+            // 启动动画循环
+            animate();
+        }
+
+        // --- 窗口自适应 ---
+        function onWindowResize() {
+            if (!renderer || !camera || !canvasHolder) return;
+
+            const newWidth = canvasHolder.clientWidth;
+            const newHeight = canvasHolder.clientHeight;
+
+            renderer.setSize(newWidth, newHeight);
+            camera.aspect = newWidth / newHeight;
+            camera.updateProjectionMatrix();
+        }
+
+        // --- 动画循环: 蛋糕自转 + 更新控制器 + 渲染 ---
+        function animate() {
+            if (!scene || !camera || !renderer) return;
+
+            // 让蛋糕组绕Y轴持续旋转 (每帧0.005弧度)
+            if (cakeGroup) {
+                cakeGroup.rotation.y += 0.005;
+            }
+
+            // 更新轨道控制器 (阻尼效果)
+            if (controls) controls.update();
+
+            // 渲染
+            renderer.render(scene, camera);
+
+            // 请求下一帧
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // 在页面卸载时取消动画 (虽然不是必须，但好习惯)
+        window.addEventListener('beforeunload', () => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+        });
+    </script>
+</body>
+</html>
