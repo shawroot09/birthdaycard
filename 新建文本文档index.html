@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生日快乐！</title>
+    <style>
+        /* 全局样式 */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(to bottom, #f5f7fa 0%, #c3cfe2 100%);
+        }
+
+        /* 初始信封界面 */
+        #envelope-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 1s ease-out, visibility 1s;
+        }
+
+        .envelope {
+            width: 300px;
+            height: 200px;
+            background-color: #ff9999;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.3s ease;
+            border-radius: 0 0 5px 5px;
+        }
+
+        .envelope:hover {
+            transform: scale(1.05);
+        }
+
+        /* 信封翻盖 */
+        .envelope::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            border-left: 150px solid transparent;
+            border-right: 150px solid transparent;
+            border-top: 100px solid #ffb3b3;
+            transform-origin: top;
+            z-index: 2;
+        }
+
+        .envelope-text {
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            z-index: 1;
+            margin-top: 20px;
+        }
+
+        /* 3D场景容器 */
+        #scene-container {
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 1.5s ease-in;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 生日卡片/祝福文本 */
+        #birthday-card {
+            position: absolute;
+            right: 5%;
+            width: 300px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            z-index: 10;
+            max-height: 80vh;
+            overflow-y: auto;
+            pointer-events: auto;
+        }
+
+        #birthday-card h1 {
+            color: #ff6666;
+            margin-top: 0;
+            text-align: center;
+        }
+
+        #birthday-card p {
+            line-height: 1.6;
+            color: #555;
+            margin-bottom: 15px;
+        }
+
+        /* 隐藏状态 */
+        .hidden {
+            opacity: 0 !important;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 800px) {
+            #scene-container {
+                flex-direction: column;
+            }
+            #birthday-card {
+                position: relative;
+                right: 0;
+                width: 80%;
+                margin-top: 20px;
+                order: 2;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 信封界面 -->
+    <div id="envelope-container">
+        <div class="envelope" onclick="openEnvelope()">
+            <div class="envelope-text">Click to Open</div>
+        </div>
+    </div>
+
+    <!-- 3D内容和卡片 -->
+    <div id="scene-container">
+        <!-- Three.js 渲染器将注入到这里 -->
+        <div id="birthday-card">
+            <h1>Happy Birthday!</h1>
+            <p>在这个特殊的日子里，愿所有的美好都如约而至。希望这层层叠加的不仅是美味的蛋糕，更是你未来一年里满满的幸福与成就。愿你的眼里总有光芒，手里总有鲜花。</p>
+            <p>生活或许会有波澜，但请记得你拥有改变世界的力量。愿你在新的一岁里，勇敢追求心中所想，保持那份最纯真的快乐，不负韶华，不负自己。</p>
+            <p>祝你生日快乐，事业蒸蒸日上，生活甜如蜜饯！无论走到哪里，都有阳光照亮你的前行之路。再次祝你：岁岁常欢愉，年年皆胜意！</p>
+        </div>
+    </div>
+
+    <!-- 导入Three.js -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls, cakeGroup;
+
+        function initThree() {
+            // 创建场景
+            scene = new THREE.Scene();
+            
+            // 设置相机
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 10);
+
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('scene-container').appendChild(renderer.domElement);
+
+            // 控制器
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            // 创建蛋糕组
+            cakeGroup = new THREE.Group();
+            createCake();
+            scene.add(cakeGroup);
+
+            // 窗口调整
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        function createCake() {
+            // 蛋糕颜色配置
+            const colors = {
+                bottom: 0xffcc99,
+                mid: 0xff99cc,
+                top: 0xff6666,
+                frosting: 0xffffffff,
+                candle: 0xffffff,
+                flame: 0xff9900
+            };
+
+            // 辅助函数：创建蛋糕层
+            function createLayer(radius, height, yPos, color) {
+                const geometry = new THREE.CylinderGeometry(radius, radius, height, 32);
+                const material = new THREE.MeshPhongMaterial({ color: color });
+                const layer = new THREE.Mesh(geometry, material);
+                layer.position.y = yPos;
+                cakeGroup.add(layer);
+
+                // 添加糖霜 (Torus)
+                const torusGeo = new THREE.TorusGeometry(radius, 0.08, 16, 100);
+                const torusMat = new THREE.MeshPhongMaterial({ color: colors.frosting });
+                const frosting = new THREE.Mesh(torusGeo, torusMat);
+                frosting.rotation.x = Math.PI / 2;
+                frosting.position.y = yPos + height / 2;
+                cakeGroup.add(frosting);
+
+                return layer;
+            }
+
+            // 三层结构 (y坐标累加)
+            createLayer(2, 0.5, 0, colors.bottom);     // 底层
+            createLayer(1.5, 0.5, 0.5, colors.mid);    // 中层
+            createLayer(1, 0.5, 1.0, colors.top);      // 顶层
+
+            // 添加蜡烛
+            const candlePos = [
+                [0, 0],       // 中心
+                [0.5, 0],     // 前
+                [-0.5, 0],    // 后
+                [0, 0.5],     // 左
+                [0, -0.5]     // 右
+            ];
+
+            candlePos.forEach(pos => {
+                const candleGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 12);
+                const candleMat = new THREE.MeshPhongMaterial({ color: colors.candle });
+                const candle = new THREE.Mesh(candleGeo, candleMat);
+                candle.position.set(pos[0], 1.45, pos[1]);
+                cakeGroup.add(candle);
+
+                // 火焰
+                const flameGeo = new THREE.SphereGeometry(0.08, 16, 16);
+                const flameMat = new THREE.MeshBasicMaterial({ color: colors.flame });
+                const flame = new THREE.Mesh(flameGeo, flameMat);
+                flame.position.set(pos[0], 1.7, pos[1]);
+                cakeGroup.add(flame);
+            });
+
+            // 添加装饰小球
+            const decorColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
+            for (let i = 0; i < 20; i++) {
+                const sphereGeo = new THREE.SphereGeometry(0.05, 8, 8);
+                const sphereMat = new THREE.MeshPhongMaterial({ color: decorColors[Math.floor(Math.random() * decorColors.length)] });
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                
+                // 随机分布在三层上
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 1.8;
+                sphere.position.set(
+                    Math.cos(angle) * dist,
+                    Math.random() * 1.2,
+                    Math.sin(angle) * dist
+                );
+                cakeGroup.add(sphere);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (cakeGroup) {
+                cakeGroup.rotation.y += 0.005;
+            }
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // 绑定到window供HTML调用
+        window.openEnvelope = function() {
+            document.getElementById('envelope-container').classList.add('hidden');
+            const sceneCont = document.getElementById('scene-container');
+            sceneCont.style.opacity = '1';
+            
+            // 初始化3D场景
+            initThree();
+        };
+    </script>
+</body>
+</html>
